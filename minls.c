@@ -39,6 +39,25 @@ struct __attribute__((packed)) partition_entry {
     uint32_t size;
 };
 
+struct __attribute((packed)) superblock {
+    uint32_t ninodes; /* number of inodes in this filesystem */
+    uint16_t pad1; /* make things line up properly */
+    int16_t i_blocks; /* # of blocks used by inode bit map */
+    int16 t z blocks; /* # of blocks used by zone bit map */
+    uint16 t firstdata; /* number of first data zone */
+int16 t log zone size; /* log2 of blocks per zone */
+int16 t pad2; /* make things line up again */
+uint32 t max file; /* maximum file size */
+uint32 t zones; /* number of zones on disk */
+int16 t magic; /* magic number */
+int16 t pad3; /* make things line up again */
+uint16 t blocksize; /* block size in bytes */
+uint8 t subversion; /* filesystem sub–version */
+}
+
+
+}
+
 struct options {
     uint8_t verbose;
     int8_t partition;
@@ -47,16 +66,23 @@ struct options {
     char *path;
 };
 
+void get_options(int argc, char *argv[], struct options *my_options);
+uint32_t get_partition_lfirst(FILE *disk, uint32_t sector, int8_t partition_num);
+unsigned long find_base(FILE *disk, int8_t partition, int8_t subpartition);
+
 uint32_t get_partition_lfirst(FILE *disk, uint32_t sector, int8_t partition_num) {
     uint8_t sigs[2];
-    fseek(disk, SIG_1_OFFSET, SEEK_SET);
+    uint32_t base_in_bytes = (sector * SECTOR_SIZE);
+    fseek(disk, base_in_bytes + SIG_1_OFFSET, SEEK_SET);
     fread(sigs, sizeof(uint8_t), 2, disk);
     if (sigs[0] != PART_TAB_SIG_1 || sigs[1] != PART_TAB_SIG_2) {
+        printf("Sector is %d, Partition num is %d\n",sector, partition_num);
         fprintf(stderr, "Invalid partition signature (%02x,%02x).\n", sigs[0], sigs[1]);
         exit(EXIT_FAILURE);
     }
 
-    uint32_t partition_entry_start = PART_TAB_START_ADDR + sizeof(struct partition_entry) * partition;
+    uint32_t partition_entry_start = base_in_bytes + PART_TAB_START_ADDR 
+                                    + (sizeof(struct partition_entry) * partition_num);
     struct partition_entry my_partition_entry; 
     fseek(disk, partition_entry_start, SEEK_SET);
     fread(&my_partition_entry, sizeof(struct partition_entry), 1, disk);
@@ -65,6 +91,7 @@ uint32_t get_partition_lfirst(FILE *disk, uint32_t sector, int8_t partition_num)
         fprintf(stderr, "Chosen partition has invalid type (%02x).\n", my_partition_entry.type);
         exit(EXIT_FAILURE);
     } 
+    return my_partition_entry.lFirst;
 }
 
 unsigned long find_base(FILE *disk, int8_t partition, int8_t subpartition) {
@@ -81,8 +108,8 @@ unsigned long find_base(FILE *disk, int8_t partition, int8_t subpartition) {
     first_sector = get_partition_lfirst(disk, first_sector, subpartition);
     return first_sector * SECTOR_SIZE;
 
-/* then access the partition you want by index */
-struct partition_entry *p = &table[part_num];
+// /* then access the partition you want by index */
+// struct partition_entry *p = &table[part_num];
 }
 
 void get_options(int argc, char *argv[], struct options *my_options) {
@@ -109,7 +136,7 @@ void get_options(int argc, char *argv[], struct options *my_options) {
                 }
                 break;
             case 's':
-                my_options->subpartition= atoi(optarg);
+                my_options->subpartition = atoi(optarg);
                 if (my_options->subpartition > MAX_PARTITION_NUM) {
                     fprintf(stderr, "Subpartition %d out of range.  Must be 0..%d.", my_options->subpartition, MAX_PARTITION_NUM);
                     exit(EXIT_FAILURE);
@@ -149,11 +176,24 @@ int main(int argc, char *argv[]) {
     struct options my_options = {0};
     get_options(argc, argv, &my_options);
 
-    FILE *start = find_filesys_start(my_options->image_file, 
-                                my_options->partition, 
-                                my_options->subpartition);
+    FILE *fp = fopen(my_options.imagefile, "rb");
+    if (fp == NULL) {
+        perror("fopen");
+        return EXIT_FAILURE;
+    }
+    unsigned long base = find_base(fp, 
+                                my_options.partition, 
+                                my_options.subpartition);
 
-    get_filesystem_info(FILE *start);
+    get_superblock()
+    unsigned long superblock_offset = base + 1024;
+
+
+    if (base == 0) {
+        return EXIT_FAILURE;
+    }
+
+    // get_filesystem_info(FILE *start);
 
     return EXIT_SUCCESS;
 }
