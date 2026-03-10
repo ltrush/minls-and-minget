@@ -14,20 +14,84 @@
  * ~pn-cs453/demos/minls ~pn-cs453/Given/Asgn5/Images/____
  * */
 
-void print_usage() {
-    fprintf(stderr, "usage: minls [ -v ] [ -p num [ -s num ] ] imagefile [ path ]\n\
-    Options:\n\
-    -p part --- select partition for filesystem (default: none)\n\
-    -s sub --- select subpartition for filesystem (default: none)\n\
-    -h help --- print usage information and exit\n\
-    -v verbose --- increase verbosity level\n");
+#define SECTOR_SIZE             512
+#define PART_TAB_START_ADDR     0x1BE
+
+#define MINIX_PART_TYPE         0x81
+#define PART_TAB_SIG_1          0x55
+#define PART_TAB_SIG_2          0xAA
+#define SIG_1_OFFSET            510
+#define SIG_2_OFFSET            511
+
+#define MAX_PARTITION_NUM       3
+#define NO_PARTITION            -1
+
+struct __attribute__((packed)) partition_entry {
+    uint8_t  bootind;
+    uint8_t  start_head;
+    uint8_t  start_sec;
+    uint8_t  start_cyl;
+    uint8_t  type;
+    uint8_t  end_head;
+    uint8_t  end_sec;
+    uint8_t  end_cyl;
+    uint32_t lFirst;
+    uint32_t size;
+};
+
+struct options {
+    uint8_t verbose;
+    int8_t partition;
+    int8_t subpartition;
+    char *imagefile;
+    char *path;
+};
+
+uint32_t get_partition_lfirst(FILE *disk, uint32_t sector, int8_t partition_num) {
+    uint8_t sigs[2];
+    fseek(disk, SIG_1_OFFSET, SEEK_SET);
+    fread(sigs, sizeof(uint8_t), 2, disk);
+    if (sigs[0] != PART_TAB_SIG_1 || sigs[1] != PART_TAB_SIG_2) {
+        fprintf(stderr, "Invalid partition signature (%02x,%02x).\n", sigs[0], sigs[1]);
+        exit(EXIT_FAILURE);
+    }
+
+    uint32_t partition_entry_start = PART_TAB_START_ADDR + sizeof(struct partition_entry) * partition;
+    struct partition_entry my_partition_entry; 
+    fseek(disk, partition_entry_start, SEEK_SET);
+    fread(&my_partition_entry, sizeof(struct partition_entry), 1, disk);
+
+    if (my_partition_entry.type != MINIX_PART_TYPE) {
+        fprintf(stderr, "Chosen partition has invalid type (%02x).\n", my_partition_entry.type);
+        exit(EXIT_FAILURE);
+    } 
 }
 
-int main(int argc, char *argv[]) {
+unsigned long find_base(FILE *disk, int8_t partition, int8_t subpartition) {
+    if (partition == NO_PARTITION) {
+        return 0;
+    }
+
+    uint32_t first_sector = get_partition_lfirst(disk, 0, partition);
+
+    if (subpartition == NO_PARTITION) {
+        return first_sector * SECTOR_SIZE;
+    }
+
+    first_sector = get_partition_lfirst(disk, first_sector, subpartition);
+    return first_sector * SECTOR_SIZE;
+
+/* then access the partition you want by index */
+struct partition_entry *p = &table[part_num];
+}
+
+void get_options(int argc, char *argv[], struct options *my_options) {
     int option;
-    int verbose = 0;
-    int partition = -1;    /* -1 means "not set" */
-    int subpartition = -1;
+
+    /* defaults */
+    my_options->verbose = 0;
+    my_options->partition = NO_PARTITION;
+    my_options->subpartition = NO_PARTITION;
 
     /* Each letter in "vp:s:" is an option. 
      A colon afterwards means to expect an argument which
@@ -35,13 +99,21 @@ int main(int argc, char *argv[]) {
     while ((option = getopt(argc, argv, "vp:s:")) != -1) {
         switch (option) {
             case 'v':
-                verbose = 1;
+                my_options->verbose = 1;
                 break;
             case 'p':
-                partition = atoi(optarg);
+                my_options->partition = atoi(optarg);
+                if (my_options->partition > MAX_PARTITION_NUM) {
+                    fprintf(stderr, "Partition %d out of range.  Must be 0..%d.", my_options->partition, MAX_PARTITION_NUM);
+                    exit(EXIT_FAILURE);
+                }
                 break;
             case 's':
-                subpartition = atoi(optarg);
+                my_options->subpartition= atoi(optarg);
+                if (my_options->subpartition > MAX_PARTITION_NUM) {
+                    fprintf(stderr, "Subpartition %d out of range.  Must be 0..%d.", my_options->subpartition, MAX_PARTITION_NUM);
+                    exit(EXIT_FAILURE);
+                }
                 break;
             default:
                 /* getopt will print "invalid option" message */
@@ -49,17 +121,39 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    /* after getopt, optind points to the first non-flag argument */
+    /* optind is index of next element to be processed in argv */
     if (optind >= argc) {
-        print_usage();
+        fprintf(stderr, "usage: minls [ -v ] [ -p num [ -s num ] ] imagefile [ path ]\n\
+            Options:\n\
+            -p part --- select partition for filesystem (default: none)\n\
+            -s sub --- select subpartition for filesystem (default: none)\n\
+            -h help --- print usage information and exit\n\
+            -v verbose --- increase verbosity level\n");
         exit(1);
     }
-    char *imagefile = argv[optind];
+
+    my_options->imagefile = argv[optind];
     /* if there's one more arg, that is our path. otherwise path is "/" */
-    char *path = (optind + 1 < argc) ? argv[optind + 1] : "/";
+    my_options->path = (optind + 1 < argc) ? argv[optind + 1] : "/";
 
     /* FOR DEBUGGING */
-    printf("%d, %d, %d, %s, %s\n", verbose, partition, subpartition, imagefile, path);
+    printf("%d, %d, %d, %s, %s\n", 
+                            my_options->verbose, 
+                            my_options->partition,
+                            my_options->subpartition, 
+                            my_options->imagefile, 
+                            my_options->path);
+}
+
+int main(int argc, char *argv[]) {
+    struct options my_options = {0};
+    get_options(argc, argv, &my_options);
+
+    FILE *start = find_filesys_start(my_options->image_file, 
+                                my_options->partition, 
+                                my_options->subpartition);
+
+    get_filesystem_info(FILE *start);
 
     return EXIT_SUCCESS;
 }
