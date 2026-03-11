@@ -2,6 +2,7 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
 #include <getopt.h>
 
 /**
@@ -88,6 +89,11 @@ struct options {
 void get_options(int argc, char *argv[], struct options *my_options);
 uint32_t get_partition_lfirst(uint32_t, int8_t);
 uint32_t find_base(int8_t partition, int8_t subpartition);
+void get_inode_n(uint32_t inode_num, struct inode * my_inode);
+int read_zone(uint32_t, uint8_t *, unsigned long);
+int read_indirect(uint32_t, uint32_t *);
+void read_file(struct inode *, uint8_t *);
+
 
 FILE *disk;
 uint32_t base_offset;           /* relative to start of disk */
@@ -210,7 +216,7 @@ void get_options(int argc, char *argv[], struct options *my_options) {
                             my_options->path);
 }
 
-void read_inode_n(uint32_t inode_num, struct inode * my_inode) {
+void get_inode_n(uint32_t inode_num, struct inode * my_inode) {
     /* inode are not 0 indexed and start at 1 */
     uint32_t inode_addr = inode_table_offset + (inode_num - 1) * INODE_SIZE;
     fseek(disk, inode_addr, SEEK_SET);
@@ -239,7 +245,7 @@ void get_superblock(struct superblock *sb) {
  * reads data from a single zone into buf, handles holes.
  * Returns amount read. This is a helper function for read_file().
 */
-int read_zone(uint32_t zone_num, uint8_t *buf, int bytes_remaining) {
+int read_zone(uint32_t zone_num, uint8_t *buf, unsigned long bytes_remaining) {
     /* read entire zone or only what is left of inode */
     int to_read = zone_size < bytes_remaining ? zone_size : bytes_remaining;
     if (zone_num == 0) {
@@ -263,11 +269,12 @@ int read_indirect(uint32_t zone_num, uint32_t *indirect_zones) {
 }
 
 void read_file(struct inode *inode, uint8_t *buf) {
-    int remaining = inode->size;
+    unsigned long remaining = inode->size;
     uint8_t *ptr = buf;
 
     /* direct zones */
-    for (int i = 0; i < DIRECT_ZONES && remaining > 0; i++) {
+    int i, j;
+    for (i = 0; i < DIRECT_ZONES && remaining > 0; i++) {
         int bytes_read = read_zone(inode->zone[i], ptr, remaining);
         ptr += bytes_read; 
         remaining -= bytes_read;
@@ -277,7 +284,7 @@ void read_file(struct inode *inode, uint8_t *buf) {
     if (remaining > 0 && inode->indirect != 0) {
         uint32_t indirect_zones[ptrs_per_zone];
         read_indirect(inode->indirect, indirect_zones);
-        for (int i = 0; i < ptrs_per_zone && remaining > 0; i++) {
+        for (i = 0; i < ptrs_per_zone && remaining > 0; i++) {
             int bytes_read = read_zone(indirect_zones[i], ptr, remaining);
             ptr += bytes_read; 
             remaining -= bytes_read;
@@ -288,11 +295,11 @@ void read_file(struct inode *inode, uint8_t *buf) {
     if (remaining > 0 && inode->two_indirect != 0) {
         uint32_t dbl_indirect_zones[ptrs_per_zone];
         read_indirect(inode->two_indirect, dbl_indirect_zones);
-        for (int i = 0; i < ptrs_per_zone && remaining > 0; i++) {
+        for (i = 0; i < ptrs_per_zone && remaining > 0; i++) {
             if (dbl_indirect_zones[i] == 0) continue;
             uint32_t indirect_zones[ptrs_per_zone];
             read_indirect(dbl_indirect_zones[i], indirect_zones);
-            for (int j = 0; j < ptrs_per_zone && remaining > 0; j++) {
+            for (j = 0; j < ptrs_per_zone && remaining > 0; j++) {
                 int n = read_zone(indirect_zones[j], ptr, remaining);
                 ptr += n; 
                 remaining -= n;
@@ -301,11 +308,28 @@ void read_file(struct inode *inode, uint8_t *buf) {
     }
 }
 
-uint32_t name_to_inode(uint32_t directory_inode_num, char * name, int name_len) {
-    
+// uint32_t name_to_inode(uint32_t directory_inode_num, char * name, int name_len) {
+//     /* this is garbage */
+//     name_len = 2;
+//     name
+//     return directory_inode_num;
 
 
+// }
 
+void print_superblock(struct superblock *sb) {
+    printf("Superblock Contents:\n");
+    printf("Stored Fields:\n");
+    printf("  ninodes %11u\n",   sb->ninodes);
+    printf("  i_blocks %10d\n",  sb->i_blocks);
+    printf("  z_blocks %10d\n",  sb->z_blocks);
+    printf("  firstdata %9u\n",  sb->firstdata);
+    printf("  log_zone_size %5d (zone size: %u)\n", sb->log_zone_size, zone_size);
+    printf("  max_file %10u\n",  sb->max_file);
+    printf("  magic     0x%04x\n", (uint16_t)sb->magic);
+    printf("  zones %13u\n",     sb->zones);
+    printf("  blocksize %9u\n",  sb->blocksize);
+    printf("  subversion %8u\n", sb->subversion);
 }
 
 int main(int argc, char *argv[]) {
@@ -324,12 +348,16 @@ int main(int argc, char *argv[]) {
     base_offset = find_base(my_options.partition, my_options.subpartition);
 
     get_superblock(&sb);
-    get_destination(path,)
-        while(pa)
-    get_inode_n(1, &my_inode);
 
-    if (base_offset == 0) {
-        return EXIT_FAILURE;
+    if (my_options.verbose) {
+        print_superblock(&sb);
+    }
+    get_inode_n(1, &root);
+    uint8_t *buf = (uint8_t *)malloc(root.size);
+    read_file(&root, buf);
+    uint32_t i;
+    for (i = 0; i < root.size; i++) {
+        printf("%c", buf[i]);
     }
 
     // get_filesystem_info(FILE *start);
