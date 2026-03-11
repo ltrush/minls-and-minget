@@ -301,17 +301,6 @@ void read_file(struct inode *inode, uint8_t *buf) {
     }
 }
 
-void read_file(char * buffer, uint32_t file_inode_num) {
-    struct inode file_inode;
-    read_inode_n(file_inode_num, &file_inode);
-    int bytes_remaining = file_inode.size;
-    int zone_index = 0;
-
-    while (bytes_remaining > 0 ) {
-        
-    }
-}
-
 uint32_t name_to_inode(uint32_t directory_inode_num, char * name, int name_len) {
     
 
