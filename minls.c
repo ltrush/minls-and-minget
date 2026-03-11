@@ -237,7 +237,7 @@ void get_superblock(struct superblock *sb) {
 
 /**
  * reads data from a single zone into buf, handles holes.
- * Returns amount read.
+ * Returns amount read. This is a helper function for read_file().
 */
 int read_zone(uint32_t zone_num, uint8_t *buf, int bytes_remaining) {
     /* read entire zone or only what is left of inode */
@@ -252,7 +252,10 @@ int read_zone(uint32_t zone_num, uint8_t *buf, int bytes_remaining) {
     return to_read;
 }
 
-/* reads a zone full of pointers into table, returns ptr count */
+/**
+ * read_indirect() reads a zone full of pointers into indirect_zones, and
+ * returns ptr count. This is a helper function for read_file().
+*/
 int read_indirect(uint32_t zone_num, uint32_t *indirect_zones) {
     fseek(disk, base_offset + (long)zone_num * zone_size, SEEK_SET);
     fread(indirect_zones, sizeof(uint32_t), ptrs_per_zone, disk);
