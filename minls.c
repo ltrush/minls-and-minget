@@ -7,7 +7,7 @@
 /**
  * QUESTIONS:
  * does the order of args matter? for some reason -v using his minls doesnt work
- * should base be a uint32 or uint64
+ * should base_offset be a uint32 or uint64
 */
 
 /**
@@ -16,16 +16,16 @@
  * */
 
 #define SECTOR_SIZE             512
-#define PART_TAB_START_ADDR     0x1BE
+#define PART_TAB_START_ADDR     0x1BE   /* relative to start disk/partition */
 
 #define MINIX_PART_TYPE         0x81
-#define PART_TAB_SIG_1          0x55
+#define PART_TAB_SIG_1          0x55    
 #define PART_TAB_SIG_2          0xAA
-#define SIG_1_OFFSET            510
-#define SIG_2_OFFSET            511
+#define SIG_1_OFFSET            510     /* relative to start of boot sector */
+#define SIG_2_OFFSET            511     /* relative to start of boot sector */
 #define MINIX_MAGIC_NUM         0x4D5A
-#define SUPERBLOCK_OFFSET       1024
-#define I_BLOCK_OFFSET          2
+#define SUPERBLOCK_OFFSET       1024    /* relative to base of FS */
+#define I_BLOCK_OFFSET          2       /* relative to base of FS */
 #define DIRECT_ZONES            7
 #define INODE_SIZE              64
 #define ROOT_INODE              1
@@ -75,7 +75,7 @@ struct __attribute__((packed)) inode {
     uint32_t indirect;
     uint32_t two_indirect;
     uint32_t unused;
-}
+};
 
 struct options {
     uint8_t verbose;
@@ -86,30 +86,39 @@ struct options {
 };
 
 void get_options(int argc, char *argv[], struct options *my_options);
-uint32_t get_partition_lfirst(uint32_t sector, int8_t partition_num);
+uint32_t get_partition_lfirst(uint32_t, int8_t);
 uint32_t find_base(int8_t partition, int8_t subpartition);
 
 FILE *disk;
-uint32_t base;
-uint32_t zone_size;
-/*how far inode table is away from base*/
-uint32_t inode_table_offset;
+uint32_t base_offset;           /* relative to start of disk */
+uint32_t inode_table_offset;    /* relative to start of disk */
+/* NOTE THAT I CHANGED THIS FROM OFFSET FROM BASE,
+so now we just use inode_table_offset on its own if we want inode table */
+uint32_t zone_size;             /* bytes */
+int ptrs_per_zone;              /* used for indirect/double direct zones */
 
-uint32_t get_partition_lfirst(uint32_t sector, int8_t partition_num) {
+/**
+ * get_partition_lfirst() validates a partition table by checking signatures,
+ * and then finds the desired partition entry. After verifying it is a valid
+ * minix partition, it returns the lFirst entry of the partition, which
+ * is the absolute sector number for where the partition data begins.
+*/
+uint32_t get_partition_lfirst(uint32_t boot_sector_num, int8_t partition_num) {
     uint8_t sigs[2];
-    uint32_t base_in_bytes = (sector * SECTOR_SIZE);
-    fseek(disk, base_in_bytes + SIG_1_OFFSET, SEEK_SET);
+    uint32_t boot_sector_offset = (boot_sector_num * SECTOR_SIZE);
+    fseek(disk, boot_sector_offset + SIG_1_OFFSET, SEEK_SET);
     fread(sigs, sizeof(uint8_t), 2, disk);
     if (sigs[0] != PART_TAB_SIG_1 || sigs[1] != PART_TAB_SIG_2) {
-        printf("Sector is %d, Partition num is %d\n",sector, partition_num);
+        printf("Sector is %d, Partition num is %d\n",boot_sector_num, partition_num);
         fprintf(stderr, "Invalid partition signature (%02x,%02x).\n", sigs[0], sigs[1]);
         exit(EXIT_FAILURE);
     }
 
-    uint32_t partition_entry_start = base_in_bytes + PART_TAB_START_ADDR 
+    /* find offset to desired partition entry in partition table */
+    uint32_t partition_entry_offset = boot_sector_offset + PART_TAB_START_ADDR 
                                     + (sizeof(struct partition_entry) * partition_num);
     struct partition_entry my_partition_entry; 
-    fseek(disk, partition_entry_start, SEEK_SET);
+    fseek(disk, partition_entry_offset, SEEK_SET);
     fread(&my_partition_entry, sizeof(struct partition_entry), 1, disk);
 
     if (my_partition_entry.type != MINIX_PART_TYPE) {
@@ -119,22 +128,26 @@ uint32_t get_partition_lfirst(uint32_t sector, int8_t partition_num) {
     return my_partition_entry.lFirst;
 }
 
+/**
+ * find_base() takes the optional partition and subpartition
+ * arguments and returns the base offset, which is how far away
+ * the base of the filesystem is in bytes from the start of the disk 
+*/
 uint32_t find_base(int8_t partition, int8_t subpartition) {
     if (partition == NO_PARTITION) {
         return 0;
     }
 
+    /* sector for the initial partition is 0 */
     uint32_t first_sector = get_partition_lfirst(0, partition);
 
     if (subpartition == NO_PARTITION) {
         return first_sector * SECTOR_SIZE;
     }
 
+    /* sector for the subpartition is the first sector of the partition */
     first_sector = get_partition_lfirst(first_sector, subpartition);
     return first_sector * SECTOR_SIZE;
-
-// /* then access the partition you want by index */
-// struct partition_entry *p = &table[part_num];
 }
 
 void get_options(int argc, char *argv[], struct options *my_options) {
@@ -198,14 +211,14 @@ void get_options(int argc, char *argv[], struct options *my_options) {
 }
 
 void read_inode_n(uint32_t inode_num, struct inode * my_inode) {
-    /*inode are not 0 indexed and start at 1*/
-    uint32_t inode_addr = base + inode_table_offset + (inode_num - 1) * INODE_SIZE;
+    /* inode are not 0 indexed and start at 1 */
+    uint32_t inode_addr = inode_table_offset + (inode_num - 1) * INODE_SIZE;
     fseek(disk, inode_addr, SEEK_SET);
     fread(my_inode, sizeof(struct inode), 1, disk);
 }
 
-void get_superblock(struct superblock * sb) {
-    uint32_t sb_start = base + SUPERBLOCK_OFFSET;
+void get_superblock(struct superblock *sb) {
+    uint32_t sb_start = base_offset + SUPERBLOCK_OFFSET;
     fseek(disk, sb_start, SEEK_SET);
     fread(sb, sizeof(struct superblock), 1, disk);
 
@@ -213,9 +226,76 @@ void get_superblock(struct superblock * sb) {
         fprintf(stderr, "This doesn't look like a MINIX filesystem.\n");
         exit(EXIT_FAILURE);
     }
+
     zone_size = sb->blocksize << sb->log_zone_size;
-    uint32_t inode_table_block = I_BLOCK_OFFSET + sb->i_blocks + sb->z_blocks;
-    inode_table_offset = base + (inode_table_block * sb->blocksize);
+    /* spec says that indirect zones only use first block of zone for ptrs */
+    ptrs_per_zone = sb->blocksize / sizeof(uint32_t);
+    /* number of blocks to start of inode table from FS base */
+    uint32_t inode_table_offset_blocks = I_BLOCK_OFFSET + sb->i_blocks + sb->z_blocks;
+    inode_table_offset = base_offset + (inode_table_offset_blocks * sb->blocksize);
+}
+
+/**
+ * reads data from a single zone into buf, handles holes.
+ * Returns amount read.
+*/
+int read_zone(uint32_t zone_num, uint8_t *buf, int bytes_remaining) {
+    /* read entire zone or only what is left of inode */
+    int to_read = zone_size < bytes_remaining ? zone_size : bytes_remaining;
+    if (zone_num == 0) {
+        memset(buf, 0, to_read);
+    } else {
+        /* need to cast to long to avoid overflow */
+        fseek(disk, base_offset + (long)zone_num * zone_size, SEEK_SET);
+        fread(buf, 1, to_read, disk);
+    }
+    return to_read;
+}
+
+/* reads a zone full of pointers into table, returns ptr count */
+int read_indirect(uint32_t zone_num, uint32_t *indirect_zones) {
+    fseek(disk, base_offset + (long)zone_num * zone_size, SEEK_SET);
+    fread(indirect_zones, sizeof(uint32_t), ptrs_per_zone, disk);
+    return ptrs_per_zone;
+}
+
+void read_file(struct inode *inode, uint8_t *buf) {
+    int remaining = inode->size;
+    uint8_t *ptr = buf;
+
+    /* direct zones */
+    for (int i = 0; i < DIRECT_ZONES && remaining > 0; i++) {
+        int bytes_read = read_zone(inode->zone[i], ptr, remaining);
+        ptr += bytes_read; 
+        remaining -= bytes_read;
+    }
+
+    /* single indirect */
+    if (remaining > 0 && inode->indirect != 0) {
+        uint32_t indirect_zones[ptrs_per_zone];
+        read_indirect(inode->indirect, indirect_zones);
+        for (int i = 0; i < ptrs_per_zone && remaining > 0; i++) {
+            int bytes_read = read_zone(indirect_zones[i], ptr, remaining);
+            ptr += bytes_read; 
+            remaining -= bytes_read;
+        }
+    }
+
+    /* double indirect */
+    if (remaining > 0 && inode->two_indirect != 0) {
+        uint32_t dbl_indirect_zones[ptrs_per_zone];
+        read_indirect(inode->two_indirect, dbl_indirect_zones);
+        for (int i = 0; i < ptrs_per_zone && remaining > 0; i++) {
+            if (dbl_indirect_zones[i] == 0) continue;
+            uint32_t indirect_zones[ptrs_per_zone];
+            read_indirect(dbl_indirect_zones[i], indirect_zones);
+            for (int j = 0; j < ptrs_per_zone && remaining > 0; j++) {
+                int n = read_zone(indirect_zones[j], ptr, remaining);
+                ptr += n; 
+                remaining -= n;
+            }
+        }
+    }
 }
 
 void read_file(char * buffer, uint32_t file_inode_num) {
@@ -238,25 +318,25 @@ uint32_t name_to_inode(uint32_t directory_inode_num, char * name, int name_len) 
 
 int main(int argc, char *argv[]) {
     struct options my_options = {0};
-    get_options(argc, argv, &my_options);
     struct superblock sb;
     struct inode root;
+
+    get_options(argc, argv, &my_options);
 
     disk = fopen(my_options.imagefile, "rb");
     if (disk == NULL) {
         perror("fopen");
         return EXIT_FAILURE;
     }
-    base = find_base(my_options.partition, my_options.subpartition);
+
+    base_offset = find_base(my_options.partition, my_options.subpartition);
 
     get_superblock(&sb);
     get_destination(path,)
         while(pa)
-    get_inode_n(1,&my_inode);
-    
+    get_inode_n(1, &my_inode);
 
-
-    if (base == 0) {
+    if (base_offset == 0) {
         return EXIT_FAILURE;
     }
 
