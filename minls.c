@@ -9,6 +9,7 @@
  * QUESTIONS:
  * does the order of args matter? for some reason -v using his minls doesnt work
  * should base_offset be a uint32 or uint64
+ * question for ourselves: do we like the way print_superblock() works
 */
 
 /**
@@ -16,23 +17,26 @@
  * ~pn-cs453/demos/minls ~pn-cs453/Given/Asgn5/Images/____
  * */
 
-#define SECTOR_SIZE             512
-#define PART_TAB_START_ADDR     0x1BE   /* relative to start disk/partition */
 
+/* DISK CONSTANTS */
+#define SECTOR_SIZE             512
+#define MAX_PARTITION_NUM       3
+#define NO_PARTITION            -1
+#define PART_TAB_START_ADDR     0x1BE   /* relative to start disk/partition */
 #define MINIX_PART_TYPE         0x81
 #define PART_TAB_SIG_1          0x55    
 #define PART_TAB_SIG_2          0xAA
 #define SIG_1_OFFSET            510     /* relative to start of boot sector */
 #define SIG_2_OFFSET            511     /* relative to start of boot sector */
+
+/* FILESYSTEM CONSTANTS */
 #define MINIX_MAGIC_NUM         0x4D5A
 #define SUPERBLOCK_OFFSET       1024    /* relative to base of FS */
 #define I_BLOCK_OFFSET          2       /* relative to base of FS */
 #define DIRECT_ZONES            7
 #define INODE_SIZE              64
-#define ROOT_INODE              1
-
-#define MAX_PARTITION_NUM       3
-#define NO_PARTITION            -1
+#define ROOT_INODE_NUM          1
+#define MAX_FILENAME_LEN        60
 
 struct __attribute__((packed)) partition_entry {
     uint8_t  bootind;
@@ -86,7 +90,14 @@ struct options {
     char *path;
 };
 
+struct __attribute__((packed)) dirent {
+    uint32_t inode_num;
+    char filename[MAX_FILENAME_LEN];
+};
+
 void get_options(int argc, char *argv[], struct options *my_options);
+void canonicalize_path(char *);
+
 uint32_t get_partition_lfirst(uint32_t, int8_t);
 uint32_t find_base(int8_t partition, int8_t subpartition);
 void get_inode_n(uint32_t inode_num, struct inode * my_inode);
@@ -205,7 +216,15 @@ void get_options(int argc, char *argv[], struct options *my_options) {
 
     my_options->imagefile = argv[optind];
     /* if there's one more arg, that is our path. otherwise path is "/" */
-    my_options->path = (optind + 1 < argc) ? argv[optind + 1] : "/";
+    if (optind + 1 < argc) {
+        my_options->path = malloc(strlen(argv[optind + 1]) + 1);
+        strcpy(my_options->path, argv[optind + 1]);
+    } else {
+        my_options->path = malloc(2);
+        my_options->path[0] = '/';
+        my_options->path[1] = '\0';
+    }
+    canonicalize_path(my_options->path);
 
     /* FOR DEBUGGING */
     printf("%d, %d, %d, %s, %s\n", 
@@ -307,7 +326,6 @@ void read_file(struct inode *inode, uint8_t *buf) {
     }
 }
 
-
 void print_superblock(struct superblock *sb) {
     printf("Superblock Contents:\n");
     printf("Stored Fields:\n");
@@ -323,12 +341,78 @@ void print_superblock(struct superblock *sb) {
     printf("  subversion %9u\n", sb->subversion);
 }
 
+/* RETURNS -1 if file not found */
+uint32_t filename_to_inode_num(uint32_t dir_inode_num, char *filename) {
+    struct inode dir;
+    struct dirent *buf, *curr;
+    unsigned int i;
+    unsigned long num_dir_entries;
 
+    get_inode_n(dir_inode_num, &dir);
+    num_dir_entries = dir.size / sizeof(struct dirent);
+    
+    buf = (struct dirent *)malloc(dir.size);
+    curr = buf;
+    read_file(&dir, (uint8_t *) curr);
+
+    for (i = 0; i < num_dir_entries; i++) {
+        if (strncmp(filename, curr->filename, MAX_FILENAME_LEN) == 0) {
+            free(buf);
+            return curr->inode_num;
+        }
+        curr++;
+    }
+
+    free(buf);
+    return -1;
+}
+
+// uint32_t find_file_inode_from_path(char *path) {
+//     struct inode root;
+
+//     if (*path == '/') {
+//         return ROOT_INODE_NUM;
+//     }
+
+//     char *subpath = strtok(path, '/');
+//     while (strtok(NULL, '/') != NULL) {
+
+//     }
+//     get_inode_n(ROOT_INODE_NUM, &root);
+
+// }
+
+/**
+ * this function fixes a path so that there are no duplicate slashes, at 
+ * least one slash for root, and no slashes at the end of the path.
+ * It assumes path is null-terminated and edits the path in place.
+*/
+void canonicalize_path(char *path) {
+    /* copy path so we have a copy to work with */
+    int len = strlen(path);
+    char tmp[len + 1];
+    strncpy(tmp, path, len + 1);
+
+    path[0] = '\0';
+    
+    char *substring = strtok(tmp, "/");
+
+    /* in case the path was just '/' */
+    if (substring == NULL) {
+        strcat(path, "/");
+        return;
+    }
+
+    while (substring != NULL) {
+        strcat(path, "/"); /* add slash */
+        strcat(path, substring); /* add substring */
+        substring = strtok(NULL, "/"); /* process next substring, if any */
+    }
+}
 
 int main(int argc, char *argv[]) {
     struct options my_options = {0};
     struct superblock sb;
-    struct inode root;
 
     get_options(argc, argv, &my_options);
 
@@ -345,16 +429,13 @@ int main(int argc, char *argv[]) {
     if (my_options.verbose) {
         print_superblock(&sb);
     }
-    get_inode_n(ROOT_INODE, &root);
-    uint8_t *buf = (uint8_t *)malloc(root.size);
-    read_file(&root, buf);
-    uint32_t i;
-    for (i = 0; i < root.size; i++) {
-        printf("%c", buf[i]);
-    }
 
-    // get_filesystem_info(FILE *start);
-    free(buf);
+    struct inode hello_inode;
+    uint32_t hello_inode_num = filename_to_inode_num(ROOT_INODE_NUM, "Hello");
+    get_inode_n(hello_inode_num, &hello_inode);
+    printf("%u", hello_inode.size);
+
+    free(my_options.path); /* free the path name malloced in get_options() */
 
     return EXIT_SUCCESS;
 }
