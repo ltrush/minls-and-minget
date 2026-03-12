@@ -236,7 +236,6 @@ void get_superblock(struct superblock *sb) {
     zone_size = sb->blocksize << sb->log_zone_size;
     /* spec says that indirect zones only use first block of zone for ptrs */
     ptrs_per_zone = sb->blocksize / sizeof(uint32_t);
-    /* number of blocks to start of inode table from FS base */
     uint32_t inode_table_offset_blocks = I_BLOCK_OFFSET + sb->i_blocks + sb->z_blocks;
     inode_table_offset = base_offset + (inode_table_offset_blocks * sb->blocksize);
 }
@@ -308,29 +307,23 @@ void read_file(struct inode *inode, uint8_t *buf) {
     }
 }
 
-// uint32_t name_to_inode(uint32_t directory_inode_num, char * name, int name_len) {
-//     /* this is garbage */
-//     name_len = 2;
-//     name
-//     return directory_inode_num;
-
-
-// }
 
 void print_superblock(struct superblock *sb) {
     printf("Superblock Contents:\n");
     printf("Stored Fields:\n");
-    printf("  ninodes %11u\n",   sb->ninodes);
-    printf("  i_blocks %10d\n",  sb->i_blocks);
-    printf("  z_blocks %10d\n",  sb->z_blocks);
-    printf("  firstdata %9u\n",  sb->firstdata);
-    printf("  log_zone_size %5d (zone size: %u)\n", sb->log_zone_size, zone_size);
-    printf("  max_file %10u\n",  sb->max_file);
-    printf("  magic     0x%04x\n", (uint16_t)sb->magic);
-    printf("  zones %13u\n",     sb->zones);
-    printf("  blocksize %9u\n",  sb->blocksize);
-    printf("  subversion %8u\n", sb->subversion);
+    printf("  ninodes %12u\n",   sb->ninodes);
+    printf("  i_blocks %11d\n",  sb->i_blocks);
+    printf("  z_blocks %11d\n",  sb->z_blocks);
+    printf("  firstdata %10u\n",  sb->firstdata);
+    printf("  log_zone_size %6d (zone size: %u)\n", sb->log_zone_size, zone_size);
+    printf("  max_file %11u\n",  sb->max_file);
+    printf("  magic         0x%04x\n", (uint16_t)sb->magic);
+    printf("  zones %14u\n",     sb->zones);
+    printf("  blocksize %10u\n",  sb->blocksize);
+    printf("  subversion %9u\n", sb->subversion);
 }
+
+
 
 int main(int argc, char *argv[]) {
     struct options my_options = {0};
@@ -352,7 +345,7 @@ int main(int argc, char *argv[]) {
     if (my_options.verbose) {
         print_superblock(&sb);
     }
-    get_inode_n(1, &root);
+    get_inode_n(ROOT_INODE, &root);
     uint8_t *buf = (uint8_t *)malloc(root.size);
     read_file(&root, buf);
     uint32_t i;
@@ -361,6 +354,7 @@ int main(int argc, char *argv[]) {
     }
 
     // get_filesystem_info(FILE *start);
+    free(buf);
 
     return EXIT_SUCCESS;
 }
