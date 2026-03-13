@@ -7,6 +7,9 @@
 #include <time.h>
 #include "utils.h"
 
+//~pn-cs453/demos/minget -v  ~pn-cs453/Given/Asgn5/Images/Files 
+//Holes/whole-indirect ./whole-indirect
+
 /**
  * get_partition_lfirst() validates a partition table by checking signatures,
  * and then finds the desired partition entry. After verifying it is a valid
@@ -80,6 +83,7 @@ void get_superblock(struct superblock *sb) {
     }
 
     zone_size = sb->blocksize << sb->log_zone_size;
+    block_size = sb->blocksize;
     /* spec says that indirect zones only use first block of zone for ptrs */
     ptrs_per_zone = sb->blocksize / sizeof(uint32_t);
     uint32_t inode_table_offset_blocks = I_BLOCK_OFFSET + sb->i_blocks +
@@ -109,10 +113,13 @@ int read_zone(uint32_t zone_num, uint8_t *buf, unsigned long bytes_remaining) {
  * read_indirect() reads a zone full of pointers into indirect_zones, and
  * returns ptr count. This is a helper function for read_file().
 */
-int read_indirect(uint32_t zone_num, uint32_t *indirect_zones) {
+void read_indirect(uint32_t zone_num, uint32_t *indirect_zones) {
+    if (zone_num == 0) {
+        memset(indirect_zones, 0, block_size);
+        return;
+    }
     fseek(disk, base_offset + (long)zone_num * zone_size, SEEK_SET);
     fread(indirect_zones, sizeof(uint32_t), ptrs_per_zone, disk);
-    return ptrs_per_zone;
 }
 
 void read_file(struct inode *inode, uint8_t *buf) {
@@ -128,7 +135,7 @@ void read_file(struct inode *inode, uint8_t *buf) {
     }
 
     /* single indirect */
-    if (remaining > 0 && inode->indirect != 0) {
+    if (remaining > 0) {
         uint32_t indirect_zones[ptrs_per_zone];
         read_indirect(inode->indirect, indirect_zones);
         for (i = 0; i < ptrs_per_zone && remaining > 0; i++) {
@@ -139,11 +146,11 @@ void read_file(struct inode *inode, uint8_t *buf) {
     }
 
     /* double indirect */
-    if (remaining > 0 && inode->two_indirect != 0) {
+    if (remaining > 0) {
         uint32_t dbl_indirect_zones[ptrs_per_zone];
         read_indirect(inode->two_indirect, dbl_indirect_zones);
         for (i = 0; i < ptrs_per_zone && remaining > 0; i++) {
-            if (dbl_indirect_zones[i] == 0) continue;
+            // if (dbl_indirect_zones[i] == 0) continue;
             uint32_t indirect_zones[ptrs_per_zone];
             read_indirect(dbl_indirect_zones[i], indirect_zones);
             for (j = 0; j < ptrs_per_zone && remaining > 0; j++) {

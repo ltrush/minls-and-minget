@@ -129,6 +129,11 @@ int main(int argc, char *argv[]) {
 		return EXIT_FAILURE;
 	}
 
+    if ((target_inode.mode & FILE_TYPE_MASK) != REGULAR_FILE) {
+		fprintf(stderr, "%s: not a regular file\n", my_options.srcpath);
+		return EXIT_FAILURE;
+	}
+
 	uint8_t *buffer = malloc(target_inode.size);
 	if (buffer == NULL) {
 		perror("malloc buffer");

@@ -97,6 +97,7 @@ uint32_t inode_table_offset;    /* relative to start of disk */
 /* NOTE THAT I CHANGED THIS FROM OFFSET FROM BASE,
 so now we just use inode_table_offset on its own if we want inode table */
 uint32_t zone_size;             /* bytes */
+uint16_t block_size;
 int ptrs_per_zone;              /* used for indirect/double direct zones */
 
 uint32_t get_partition_lfirst(uint32_t boot_sector_num, int8_t partition_num);
@@ -104,7 +105,7 @@ uint32_t find_base(int8_t partition, int8_t subpartition);
 void get_inode_n(uint32_t inode_num, struct inode * my_inode);
 void get_superblock(struct superblock *sb);
 int read_zone(uint32_t zone_num, uint8_t *buf, unsigned long bytes_remaining);
-int read_indirect(uint32_t zone_num, uint32_t *indirect_zones);
+void read_indirect(uint32_t zone_num, uint32_t *indirect_zones);
 void read_file(struct inode *inode, uint8_t *buf);
 void print_superblock(struct superblock *sb);
 void print_inode(struct inode * in);
