@@ -24,7 +24,8 @@ struct options {
     int8_t partition;
     int8_t subpartition;
     char *imagefile;
-    char *path;
+    char *srcpath;
+	char *dstpath;
 };
 
 void get_options(int argc, char *argv[], struct options *my_options) {
@@ -67,78 +68,37 @@ void get_options(int argc, char *argv[], struct options *my_options) {
     }
 
     /* optind is index of next element to be processed in argv */
-    if (optind >= argc) {
+    if (optind + 1 >= argc) {
         fprintf(stderr, "usage: minls [ -v ] [ -p num [ -s num ] ]\
-         imagefile [ path ]\n\
+         imagefile srcpath [ dstpath ]\n\
             Options:\n\
             -p part --- select partition for filesystem (default: none)\n\
             -s sub --- select subpartition for filesystem (default: none)\n\
             -h help --- print usage information and exit\n\
             -v verbose --- increase verbosity level\n");
-        exit(1);
+        exit(EXIT_FAILURE);
     }
 
     my_options->imagefile = argv[optind];
+
+	my_options->srcpath = malloc(strlen(argv[optind + 1]) + 1);
+	strcpy(my_options->srcpath, argv[optind + 1]);
+	canonicalize_path(my_options->srcpath);
+
     /* if there's one more arg, that is our path. otherwise path is "/" */
-    if (optind + 1 < argc) {
-        my_options->path = malloc(strlen(argv[optind + 1]) + 1);
-        strcpy(my_options->path, argv[optind + 1]);
+    if (optind + 2 < argc) {
+        my_options->dstpath = malloc(strlen(argv[optind + 2]) + 1);
+        strcpy(my_options->dstpath, argv[optind + 2]);
     } else {
-        my_options->path = malloc(2);
-        my_options->path[0] = '/';
-        my_options->path[1] = '\0';
+        my_options->dstpath = NULL;
+
     }
-    canonicalize_path(my_options->path);
-    /* FOR DEBUGGING */
-    // printf("%d, %d, %d, %s, %s\n", 
-    //                         my_options->verbose, 
-    //                         my_options->partition,
-    //                         my_options->subpartition, 
-    //                         my_options->imagefile, 
-    //                         my_options->path);
 }
-
-
-
-
-
-void print_file(char *path, struct inode *in) {
-
-    print_perm(in->mode);
-    printf(" %9u %s\n",in->size, path + 1);
-
-}
-void print_dir_entry(struct dirent * dir) {
-    struct inode in;
-    get_inode_n(dir->inode_num, &in);
-    print_perm(in.mode);
-    char *name_to_print = (dir->filename[0] == '/') 
-                ? &dir->filename[1] : dir->filename;
-    printf(" %9u %s\n", in.size, name_to_print);
-}
-
-void print_dir(struct inode *in) {
-    struct dirent * entries;
-    int i;
-    int count;
-
-    entries = malloc(in->size);
-    read_file(in, (uint8_t *)entries);
-    count = in->size / sizeof(struct dirent);
-    for (i = 0; i < count; i++) {
-        if (entries[i].inode_num == 0) {
-            continue;
-        }
-        print_dir_entry(&entries[i]);
-    }
-    free(entries);
-}
-
-
 
 int main(int argc, char *argv[]) {
     struct options my_options = {0};
     struct superblock sb;
+	FILE* out;
 
     get_options(argc, argv, &my_options);
 
@@ -152,28 +112,49 @@ int main(int argc, char *argv[]) {
 
     get_superblock(&sb);
 
-   
-    
     struct inode target_inode;
     uint32_t target_inode_num;
 
-    target_inode_num = find_file_inode_from_path(my_options.path);
+    target_inode_num = find_file_inode_from_path(my_options.srcpath);
     get_inode_n(target_inode_num, &target_inode);
      if (my_options.verbose) {
-        printf("%s:\n",my_options.path);
+        printf("%s:\n",my_options.dstpath);
         print_superblock(&sb);
         print_inode(&target_inode);
     }
 
-    
-    if ((target_inode.mode & FILE_TYPE_MASK) == MINIX_DIRECTORY) {
-        printf("%s:\n",my_options.path);
-        print_dir(&target_inode);
-    } else {
-        print_file(my_options.path, &target_inode);
-    }
+	if ((target_inode.mode & FILE_TYPE_MASK) == MINIX_DIRECTORY) {
+		fprintf(stderr, "Cannot copy a directory.\n");
+		return EXIT_FAILURE;
+	}
 
-    free(my_options.path); /* free the path name malloced in get_options() */
+	uint8_t *buffer = malloc(target_inode.size);
+	if (buffer == NULL) {
+		perror("malloc buffer");
+		return EXIT_FAILURE;
+	}
+
+	read_file(&target_inode, buffer);
+
+	if (my_options.dstpath == NULL) {
+		out = stdout;
+	} else {
+		out = fopen(my_options.dstpath, "wb");
+		if (!out) {
+			perror("fopen");
+			exit(EXIT_FAILURE);
+		}
+	}
+	fwrite(buffer,1,target_inode.size, out);
+
+	if (out != stdout) {
+		fclose(out);
+	}
+	free(buffer);
+	free(my_options.srcpath);
+	if (my_options.dstpath) {
+		free(my_options.dstpath);
+	}
     fclose(disk);
 
     return EXIT_SUCCESS;
