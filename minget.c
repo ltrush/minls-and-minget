@@ -119,6 +119,7 @@ int main(int argc, char *argv[]) {
     get_inode_n(target_inode_num, &target_inode);
      if (my_options.verbose) {
         printf("%s:\n",my_options.dstpath);
+		print_partition_table();
         print_superblock(&sb);
         print_inode(&target_inode);
     }

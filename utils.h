@@ -112,3 +112,4 @@ uint32_t filename_to_inode_num(uint32_t dir_inode_num, char *filename);
 uint32_t find_file_inode_from_path(char *path);
 void canonicalize_path(char *path);
 void print_perm(uint16_t mode);
+void print_partition_table();

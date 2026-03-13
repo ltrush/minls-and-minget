@@ -89,13 +89,7 @@ void get_options(int argc, char *argv[], struct options *my_options) {
         my_options->path[1] = '\0';
     }
     canonicalize_path(my_options->path);
-    /* FOR DEBUGGING */
-    // printf("%d, %d, %d, %s, %s\n", 
-    //                         my_options->verbose, 
-    //                         my_options->partition,
-    //                         my_options->subpartition, 
-    //                         my_options->imagefile, 
-    //                         my_options->path);
+
 }
 
 
@@ -161,6 +155,7 @@ int main(int argc, char *argv[]) {
     get_inode_n(target_inode_num, &target_inode);
      if (my_options.verbose) {
         printf("%s:\n",my_options.path);
+		print_partition_table();
         print_superblock(&sb);
         print_inode(&target_inode);
     }

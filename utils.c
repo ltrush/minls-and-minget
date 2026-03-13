@@ -55,7 +55,7 @@ uint32_t find_base(int8_t partition, int8_t subpartition) {
 
     if (subpartition == NO_PARTITION) {
         return first_sector * SECTOR_SIZE;
-    }
+	}
 
     /* sector for the subpartition is the first sector of the partition */
     first_sector = get_partition_lfirst(first_sector, subpartition);
@@ -157,7 +157,7 @@ void read_file(struct inode *inode, uint8_t *buf) {
 
 void print_superblock(struct superblock *sb) {
     
-    printf("Superblock Contents:\n");
+    printf("\nSuperblock Contents:\n");
     printf("Stored Fields:\n");
     printf("  ninodes %12u\n",   sb->ninodes);
     printf("  i_blocks %11d\n",  sb->i_blocks);
@@ -175,7 +175,7 @@ void print_inode(struct inode * in) {
     int i;
     time_t t;
 
-    printf("File inode:\n");
+    printf("\nFile inode:\n");
     printf("  uint16_t mode 0x%04x (",in->mode);
     print_perm(in->mode);
     printf(")\n");
@@ -197,20 +197,9 @@ void print_inode(struct inode * in) {
     printf("  uint32_t double %u\n", in->indirect);
 
 }
-struct __attribute__((packed)) partition_entry {
-    uint8_t  bootind;
-    uint8_t  start_head;
-    uint8_t  start_sec;
-    uint8_t  start_cyl;
-    uint8_t  type;
-    uint8_t  end_head;
-    uint8_t  end_sec;
-    uint8_t  end_cyl;
-    uint32_t lFirst;
-    uint32_t size;
-};
+
 void print_partition_table() {
-    printf("Partition_Table:\n");
+    printf("\nPartition_Table:\n");
     printf("  uint8_t  bootind    %u\n", my_partition_entry.bootind);
     printf("  uint8_t  start_head %u\n", my_partition_entry.start_head);
     printf("  uint8_t  start_sec  %u\n", my_partition_entry.start_sec);
@@ -258,7 +247,9 @@ uint32_t filename_to_inode_num(uint32_t dir_inode_num, char *filename) {
     free(buf);
     return (uint32_t)-1;
 }
-
+/*given the path, it will tokenize by the / 
+ path is already canonicalized and finds the
+ inode of the last file/directory in path */
 uint32_t find_file_inode_from_path(char *path) {
     uint32_t current_inode = ROOT_INODE_NUM;
     struct inode in;
@@ -272,17 +263,19 @@ uint32_t find_file_inode_from_path(char *path) {
     char *token = strtok(copy,"/");
     while (token != NULL) {
         get_inode_n(current_inode,&in);
+		/* is this still a valid directory to pass through/open */
         if ((in.mode & FILE_TYPE_MASK) != MINIX_DIRECTORY) {
             fprintf(stderr,"Not a directory: %s\n", token);
             exit(EXIT_FAILURE);
         }
+		/*find the inode that is currently in the path*/
         current_inode = filename_to_inode_num(current_inode, token);
 
         if (current_inode == (uint32_t)-1) {
             fprintf(stderr, "File not found: %s\n",token);
             exit(EXIT_FAILURE);
         }
-
+		/*continue the token from where left off*/
         token = strtok(NULL,"/");
 
     }
@@ -318,6 +311,8 @@ void canonicalize_path(char *path) {
     }
 }
 
+/*given the mode of an inode it will use the MINIX MASK
+ to print out 10 characters representing the permissions*/
 void print_perm(uint16_t mode) {
     char perm[11];
     perm[10] ='\0';
