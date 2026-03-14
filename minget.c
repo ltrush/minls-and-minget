@@ -8,13 +8,6 @@
 #include "utils.h"
 
 /**
- * QUESTIONS:
- * does the order of args matter? for some reason -v using his minls doesnt work
- * should base_offset be a uint32 or uint64
- * question for ourselves: do we like the way print_superblock() works
-*/
-
-/**
  * TESTING:
  * ~pn-cs453/demos/minls ~pn-cs453/Given/Asgn5/Images/____
  * */
@@ -25,10 +18,10 @@ struct options {
     int8_t subpartition;
     char *imagefile;
     char *srcpath;
-	char *dstpath;
+    char *dstpath;
 };
 
-void get_options(int argc, char *argv[], struct options *my_options) {
+void get_options_minget(int argc, char *argv[], struct options *my_options) {
     int option;
 
     /* defaults */
@@ -46,17 +39,19 @@ void get_options(int argc, char *argv[], struct options *my_options) {
                 break;
             case 'p':
                 my_options->partition = atoi(optarg);
-                if (my_options->partition > MAX_PARTITION_NUM) {
-                    fprintf(stderr, "Partition %d out of range. Must be 0..%d.",
+                if (my_options->partition > MAX_PARTITION_NUM ||
+                                my_options->partition < MIN_PARTITION_NUM) {
+                    fprintf(stderr, "Partition %d out of range. Need(0..%d)\n",
                                      my_options->partition, MAX_PARTITION_NUM);
                     exit(EXIT_FAILURE);
                 }
                 break;
             case 's':
                 my_options->subpartition = atoi(optarg);
-                if (my_options->subpartition > MAX_PARTITION_NUM) {
+                if (my_options->subpartition > MAX_PARTITION_NUM ||
+                                my_options->partition < MIN_PARTITION_NUM) {
                     fprintf(stderr, "Subpartition %d out of range.  \
-                                Must be 0..%d.",
+                                Must be 0..%d.\n",
                                 my_options->subpartition, MAX_PARTITION_NUM);
                     exit(EXIT_FAILURE);
                 }
@@ -81,13 +76,21 @@ void get_options(int argc, char *argv[], struct options *my_options) {
 
     my_options->imagefile = argv[optind];
 
-	my_options->srcpath = malloc(strlen(argv[optind + 1]) + 1);
-	strcpy(my_options->srcpath, argv[optind + 1]);
-	canonicalize_path(my_options->srcpath);
+    my_options->srcpath = malloc(strlen(argv[optind + 1]) + 1);
+    if (my_options->srcpath == NULL) {
+        perror("malloc srcpath");
+        exit(EXIT_FAILURE);
+    }
+    strcpy(my_options->srcpath, argv[optind + 1]);
+    canonicalize_path(my_options->srcpath);
 
     /* if there's one more arg, that is our path. otherwise path is "/" */
     if (optind + 2 < argc) {
         my_options->dstpath = malloc(strlen(argv[optind + 2]) + 1);
+        if (my_options->dstpath == NULL) {
+            perror("malloc dstpath");
+            exit(EXIT_FAILURE);
+        }
         strcpy(my_options->dstpath, argv[optind + 2]);
     } else {
         my_options->dstpath = NULL;
@@ -98,9 +101,9 @@ void get_options(int argc, char *argv[], struct options *my_options) {
 int main(int argc, char *argv[]) {
     struct options my_options = {0};
     struct superblock sb;
-	FILE* out;
+    FILE* out;
 
-    get_options(argc, argv, &my_options);
+    get_options_minget(argc, argv, &my_options);
 
     disk = fopen(my_options.imagefile, "rb");
     if (disk == NULL) {
@@ -119,48 +122,48 @@ int main(int argc, char *argv[]) {
     get_inode_n(target_inode_num, &target_inode);
      if (my_options.verbose) {
         printf("%s:\n",my_options.dstpath);
-		print_partition_table();
+        print_partition_table();
         print_superblock(&sb);
         print_inode(&target_inode);
     }
 
-	if ((target_inode.mode & FILE_TYPE_MASK) == MINIX_DIRECTORY) {
-		fprintf(stderr, "Cannot copy a directory.\n");
-		return EXIT_FAILURE;
-	}
+    if ((target_inode.mode & FILE_TYPE_MASK) == MINIX_DIRECTORY) {
+        fprintf(stderr, "Cannot copy a directory.\n");
+        return EXIT_FAILURE;
+    }
 
     if ((target_inode.mode & FILE_TYPE_MASK) != REGULAR_FILE) {
-		fprintf(stderr, "%s: not a regular file\n", my_options.srcpath);
-		return EXIT_FAILURE;
-	}
+        fprintf(stderr, "%s: not a regular file\n", my_options.srcpath);
+        return EXIT_FAILURE;
+    }
 
-	uint8_t *buffer = malloc(target_inode.size);
-	if (buffer == NULL) {
-		perror("malloc buffer");
-		return EXIT_FAILURE;
-	}
+    uint8_t *buffer = malloc(target_inode.size);
+    if (buffer == NULL) {
+        perror("malloc buffer");
+        return EXIT_FAILURE;
+    }
 
-	read_file(&target_inode, buffer);
+    read_file(&target_inode, buffer);
 
-	if (my_options.dstpath == NULL) {
-		out = stdout;
-	} else {
-		out = fopen(my_options.dstpath, "wb");
-		if (!out) {
-			perror("fopen");
-			exit(EXIT_FAILURE);
-		}
-	}
-	fwrite(buffer,1,target_inode.size, out);
+    if (my_options.dstpath == NULL) {
+        out = stdout;
+    } else {
+        out = fopen(my_options.dstpath, "wb");
+        if (!out) {
+            perror("fopen");
+            exit(EXIT_FAILURE);
+        }
+    }
+    fwrite(buffer,1,target_inode.size, out);
 
-	if (out != stdout) {
-		fclose(out);
-	}
-	free(buffer);
-	free(my_options.srcpath);
-	if (my_options.dstpath) {
-		free(my_options.dstpath);
-	}
+    if (out != stdout) {
+        fclose(out);
+    }
+    free(buffer);
+    free(my_options.srcpath);
+    if (my_options.dstpath) {
+        free(my_options.dstpath);
+    }
     fclose(disk);
 
     return EXIT_SUCCESS;

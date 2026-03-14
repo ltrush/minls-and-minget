@@ -7,9 +7,6 @@
 #include <time.h>
 #include "utils.h"
 
-//~pn-cs453/demos/minget -v  ~pn-cs453/Given/Asgn5/Images/Files 
-//Holes/whole-indirect ./whole-indirect
-
 /**
  * get_partition_lfirst() validates a partition table by checking signatures,
  * and then finds the desired partition entry. After verifying it is a valid
@@ -58,13 +55,16 @@ uint32_t find_base(int8_t partition, int8_t subpartition) {
 
     if (subpartition == NO_PARTITION) {
         return first_sector * SECTOR_SIZE;
-	}
+    }
 
     /* sector for the subpartition is the first sector of the partition */
     first_sector = get_partition_lfirst(first_sector, subpartition);
     return first_sector * SECTOR_SIZE;
 }
 
+/* Seeks to given inode_num in the inode table and fills out
+ * inode struct.
+ */
 void get_inode_n(uint32_t inode_num, struct inode * my_inode) {
     /* inode are not 0 indexed and start at 1 */
     uint32_t inode_addr = inode_table_offset + (inode_num - 1) * INODE_SIZE;
@@ -72,6 +72,12 @@ void get_inode_n(uint32_t inode_num, struct inode * my_inode) {
     fread(my_inode, sizeof(struct inode), 1, disk);
 }
 
+/**
+ * get_superbock takes a pointer to a struct superblock. It seeks
+ * to the beginning of the superblock on disk and writes the superblock
+ * info to the struct. It also validates the magic number and sets
+ * important globals like zone_size.
+*/
 void get_superblock(struct superblock *sb) {
     uint32_t sb_start = base_offset + SUPERBLOCK_OFFSET;
     fseek(disk, sb_start, SEEK_SET);
@@ -110,8 +116,9 @@ int read_zone(uint32_t zone_num, uint8_t *buf, unsigned long bytes_remaining) {
 }
 
 /**
- * read_indirect() reads a zone full of pointers into indirect_zones, and
- * returns ptr count. This is a helper function for read_file().
+ * read_indirect() reads a zone full of pointers into indirect_zones. 
+ * If the zone number is zero, it will set indirect_zones to be all zero.
+ * This is a helper function for read_file().
 */
 void read_indirect(uint32_t zone_num, uint32_t *indirect_zones) {
     if (zone_num == 0) {
@@ -122,6 +129,11 @@ void read_indirect(uint32_t zone_num, uint32_t *indirect_zones) {
     fread(indirect_zones, sizeof(uint32_t), ptrs_per_zone, disk);
 }
 
+/**
+ * read_file takes a pointer to an inode struct and a buffer pointer
+ * and reads zones (direct, indirect, double indirect), filling buffer until
+ * it has read inode->size bytes. 
+*/
 void read_file(struct inode *inode, uint8_t *buf) {
     unsigned long remaining = inode->size;
     uint8_t *ptr = buf;
@@ -150,7 +162,6 @@ void read_file(struct inode *inode, uint8_t *buf) {
         uint32_t dbl_indirect_zones[ptrs_per_zone];
         read_indirect(inode->two_indirect, dbl_indirect_zones);
         for (i = 0; i < ptrs_per_zone && remaining > 0; i++) {
-            // if (dbl_indirect_zones[i] == 0) continue;
             uint32_t indirect_zones[ptrs_per_zone];
             read_indirect(dbl_indirect_zones[i], indirect_zones);
             for (j = 0; j < ptrs_per_zone && remaining > 0; j++) {
@@ -178,6 +189,7 @@ void print_superblock(struct superblock *sb) {
     printf("  blocksize %10u\n",  sb->blocksize);
     printf("  subversion %9u\n", sb->subversion);
 }
+
 void print_inode(struct inode * in) {
     int i;
     time_t t;
@@ -214,13 +226,17 @@ void print_partition_table() {
     printf("  uint8_t  type       %u\n", my_partition_entry.type);
     printf("  uint8_t  end_head   %u\n", my_partition_entry.end_head);
     printf("  uint8_t  end_sec    %u\n", my_partition_entry.end_sec);
-	printf("  uint8_t  end_cyl    %u\n", my_partition_entry.end_cyl);
-	printf("  uint32_t lFirst     %u\n", my_partition_entry.lFirst);
-	printf("  uint32_t size       %u\n", my_partition_entry.size);
+    printf("  uint8_t  end_cyl    %u\n", my_partition_entry.end_cyl);
+    printf("  uint32_t lFirst     %u\n", my_partition_entry.lFirst);
+    printf("  uint32_t size       %u\n", my_partition_entry.size);
 
 }
 
-/* RETURNS -1 if file not found */
+/**
+ * Take a directory inode and a filename and searches through
+ * the directory looking for a matching file. If found, returns
+ * inode num. Otherwise returns 0.
+*/
 uint32_t filename_to_inode_num(uint32_t dir_inode_num, char *filename) {
     struct inode dir;
     struct dirent *buf, *curr;
@@ -231,17 +247,18 @@ uint32_t filename_to_inode_num(uint32_t dir_inode_num, char *filename) {
     num_dir_entries = dir.size / sizeof(struct dirent);
     
     buf = (struct dirent *)malloc(dir.size);
-	if (buf == NULL) {
-		fprintf(stderr,"malloc dirent");
-		exit(EXIT_FAILURE);
-	}
+    if (buf == NULL) {
+        fprintf(stderr,"malloc dirent");
+        exit(EXIT_FAILURE);
+    }
     curr = buf;
     read_file(&dir, (uint8_t *) curr);
 
+    /* loop through entries looking for matching filename */
     for (i = 0; i < num_dir_entries; i++) {
         if (curr->inode_num == 0) {
-                curr++;
-                continue;
+            curr++;
+            continue;
         }
         if (strlen(filename) == strlen(curr->filename) && 
            strncmp(filename, curr->filename, MAX_FILENAME_LEN) == 0) {
@@ -252,11 +269,14 @@ uint32_t filename_to_inode_num(uint32_t dir_inode_num, char *filename) {
     }
     
     free(buf);
-    return (uint32_t)-1;
+    return 0;
 }
-/*given the path, it will tokenize by the / 
- path is already canonicalized and finds the
- inode of the last file/directory in path */
+
+/**
+ * given the path, it will tokenize by '/'. 
+ * Path is already canonicalized. Finds the
+ * inode of the last file/directory in path
+*/
 uint32_t find_file_inode_from_path(char *path) {
     uint32_t current_inode = ROOT_INODE_NUM;
     struct inode in;
@@ -270,19 +290,19 @@ uint32_t find_file_inode_from_path(char *path) {
     char *token = strtok(copy,"/");
     while (token != NULL) {
         get_inode_n(current_inode,&in);
-		/* is this still a valid directory to pass through/open */
+        /* is this still a valid directory to pass through/open */
         if ((in.mode & FILE_TYPE_MASK) != MINIX_DIRECTORY) {
             fprintf(stderr,"Not a directory: %s\n", token);
             exit(EXIT_FAILURE);
         }
-		/*find the inode that is currently in the path*/
+        /*find the inode that is currently in the path*/
         current_inode = filename_to_inode_num(current_inode, token);
 
-        if (current_inode == (uint32_t)-1) {
+        if (current_inode == 0) {
             fprintf(stderr, "File not found: %s\n",token);
             exit(EXIT_FAILURE);
         }
-		/*continue the token from where left off*/
+        /*continue the token from where left off*/
         token = strtok(NULL,"/");
 
     }

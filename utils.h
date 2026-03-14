@@ -7,6 +7,7 @@
 /* DISK CONSTANTS */
 #define SECTOR_SIZE             512
 #define MAX_PARTITION_NUM       3
+#define MIN_PARTITION_NUM       0
 #define NO_PARTITION            -1
 #define PART_TAB_START_ADDR     0x1BE   /* relative to start disk/partition */
 #define MINIX_PART_TYPE         0x81
@@ -24,7 +25,7 @@
 #define ROOT_INODE_NUM          1
 #define MAX_FILENAME_LEN        60
 
-/*MINIX MODE MASKS */
+/* MINIX MODE MASKS */
 #define FILE_TYPE_MASK          0170000
 #define REGULAR_FILE			0100000
 #define MINIX_DIRECTORY         0040000
@@ -37,7 +38,6 @@
 #define OTHER_READ              0000004
 #define OTHER_WRITE             0000002
 #define OTHER_EXEC              0000001
-
 
 struct __attribute__((packed)) partition_entry {
     uint8_t  bootind;
@@ -83,8 +83,6 @@ struct __attribute__((packed)) inode {
     uint32_t unused;
 };
 
-
-
 struct __attribute__((packed)) dirent {
     uint32_t inode_num;
     char filename[MAX_FILENAME_LEN];
@@ -94,8 +92,6 @@ FILE *disk;
 struct partition_entry my_partition_entry;
 uint32_t base_offset;           /* relative to start of disk */
 uint32_t inode_table_offset;    /* relative to start of disk */
-/* NOTE THAT I CHANGED THIS FROM OFFSET FROM BASE,
-so now we just use inode_table_offset on its own if we want inode table */
 uint32_t zone_size;             /* bytes */
 uint16_t block_size;
 int ptrs_per_zone;              /* used for indirect/double direct zones */

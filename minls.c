@@ -8,13 +8,6 @@
 #include "utils.h"
 
 /**
- * QUESTIONS:
- * does the order of args matter? for some reason -v using his minls doesnt work
- * should base_offset be a uint32 or uint64
- * question for ourselves: do we like the way print_superblock() works
-*/
-
-/**
  * TESTING:
  * ~pn-cs453/demos/minls ~pn-cs453/Given/Asgn5/Images/____
  * */
@@ -27,7 +20,7 @@ struct options {
     char *path;
 };
 
-void get_options(int argc, char *argv[], struct options *my_options) {
+void get_options_minls(int argc, char *argv[], struct options *my_options) {
     int option;
 
     /* defaults */
@@ -45,17 +38,19 @@ void get_options(int argc, char *argv[], struct options *my_options) {
                 break;
             case 'p':
                 my_options->partition = atoi(optarg);
-                if (my_options->partition > MAX_PARTITION_NUM) {
-                    fprintf(stderr, "Partition %d out of range. Must be 0..%d.",
+                if (my_options->partition > MAX_PARTITION_NUM || 
+                        my_options->partition < MIN_PARTITION_NUM) {
+                    fprintf(stderr, "Partition %d out of range. Need(0..%d)\n",
                                      my_options->partition, MAX_PARTITION_NUM);
                     exit(EXIT_FAILURE);
                 }
                 break;
             case 's':
                 my_options->subpartition = atoi(optarg);
-                if (my_options->subpartition > MAX_PARTITION_NUM) {
+                if (my_options->subpartition > MAX_PARTITION_NUM ||
+                        my_options->partition < MIN_PARTITION_NUM) {
                     fprintf(stderr, "Subpartition %d out of range.  \
-                                Must be 0..%d.",
+                                Must be 0..%d.\n",
                                 my_options->subpartition, MAX_PARTITION_NUM);
                     exit(EXIT_FAILURE);
                 }
@@ -82,26 +77,28 @@ void get_options(int argc, char *argv[], struct options *my_options) {
     /* if there's one more arg, that is our path. otherwise path is "/" */
     if (optind + 1 < argc) {
         my_options->path = malloc(strlen(argv[optind + 1]) + 1);
+        if (my_options->path == NULL) {
+            perror("malloc path");
+            exit(EXIT_FAILURE);
+        }
         strcpy(my_options->path, argv[optind + 1]);
     } else {
         my_options->path = malloc(2);
+        if (my_options->path == NULL) {
+            perror("malloc path");
+            exit(EXIT_FAILURE);
+        }
         my_options->path[0] = '/';
         my_options->path[1] = '\0';
     }
     canonicalize_path(my_options->path);
-
 }
-
-
-
-
 
 void print_file(char *path, struct inode *in) {
-
     print_perm(in->mode);
     printf(" %9u %s\n",in->size, path + 1);
-
 }
+
 void print_dir_entry(struct dirent * dir) {
     struct inode in;
     get_inode_n(dir->inode_num, &in);
@@ -117,6 +114,10 @@ void print_dir(struct inode *in) {
     int count;
 
     entries = malloc(in->size);
+    if (entries == NULL) {
+        perror("malloc dir_entries");
+        exit(EXIT_FAILURE);
+    }
     read_file(in, (uint8_t *)entries);
     count = in->size / sizeof(struct dirent);
     for (i = 0; i < count; i++) {
@@ -128,13 +129,11 @@ void print_dir(struct inode *in) {
     free(entries);
 }
 
-
-
 int main(int argc, char *argv[]) {
     struct options my_options = {0};
     struct superblock sb;
 
-    get_options(argc, argv, &my_options);
+    get_options_minls(argc, argv, &my_options);
 
     disk = fopen(my_options.imagefile, "rb");
     if (disk == NULL) {
@@ -155,7 +154,7 @@ int main(int argc, char *argv[]) {
     get_inode_n(target_inode_num, &target_inode);
      if (my_options.verbose) {
         printf("%s:\n",my_options.path);
-		print_partition_table();
+        print_partition_table();
         print_superblock(&sb);
         print_inode(&target_inode);
     }
